@@ -34,8 +34,8 @@ jobs:
           add_repositories("switch-repo https://github.com/PoloNX/switch-repo.git")
           add_repositories("zeromake-repo https://github.com/zeromake/xrepo.git")
 
-
-          includes("toolchain/*.lua")
+          # Commented out includes to prevent errors if toolchain/*.lua does not exist
+          -- includes("toolchain/*.lua")
 
           add_defines(
               'BRLS_RESOURCES="romfs:/"',
