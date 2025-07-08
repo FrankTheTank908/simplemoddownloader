@@ -1,118 +1,98 @@
-name: Build and Release SimpleModDownloader with Docker
+name: Switch build and release
 
 on:
   push:
     branches:
-      - main
+      - master
   pull_request:
-    branches:
-      - main
-  workflow_dispatch: # Allows manual triggering of the workflow
+    types: [opened, reopened, synchronize]
+  workflow_dispatch:
+    inputs:
+      nx:
+        description: build Nintendo Switch
+        type: boolean
+
+permissions:
+  contents: write
 
 jobs:
-  build-and-release:
-    runs-on: ubuntu-latest
+  build-nx:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        arch: [x86_64]
+        mode: [debug, release]
+    
+    runs-on: ${{ matrix.os }}
+    if: "!contains(github.event.head_commit.message, 'ci skip')"
+    container: devkitpro/devkita64
 
     steps:
-    # Step 1: Checkout repository
-    - name: Checkout code
-      uses: actions/checkout@v3
+      - name: Get current date as package key
+        id: cache_key
+        run: echo "key=$(date +'%W')" >> $GITHUB_OUTPUT
 
-    # Step 2: Build using DevkitA64 Docker image
-    - name: Build using DevkitA64 Docker image
-      uses: addnab/docker-run-action@v3
-      with:
-        image: devkitpro/devkita64:latest
-        options: --rm  # Clean up the container after the job
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
         run: |
-          # Ensure xmake is installed
-          curl -fsSL https://xmake.io/shget.text | bash
-          export PATH=$HOME/.local/bin:$PATH
-          
-          # Create the xmake.lua file dynamically
-          cat > $GITHUB_WORKSPACE/xmake.lua << 'EOF'
-          add_repositories("switch-repo https://github.com/PoloNX/switch-repo.git")
-          add_repositories("zeromake-repo https://github.com/zeromake/xrepo.git")
+          sudo apt-get update
+          sudo apt-get -y install gcc
 
-          # Commented out includes to prevent errors if toolchain/*.lua does not exist
-          -- includes("toolchain/*.lua")
+      - name: Set xmake env
+        run: echo "XMAKE_GLOBALDIR=${{ runner.workspace }}/xmake-global" >> $GITHUB_ENV
 
-          add_defines(
-              'BRLS_RESOURCES="romfs:/"',
-              "YG_ENABLE_EVENTS",
-              "STBI_NO_THREAD_LOCALS", 
-              "BOREALIS_USE_DEKO3D"
-          )
+      - name: Setup xmake
+        uses: xmake-io/github-action-setup-xmake@v1
+        with:
+          xmake-version: branch@dev
+          actions-cache-folder: .xmake-cache-W${{ steps.cache_key.outputs.key }}
 
-          add_rules("mode.debug", "mode.release")
+      - name: Update xmake repository
+        run: xmake repo --update --root && xmake repo -u --root && dkp-pacman -Rs --noconfirm switch-tinyxml2
 
-          add_requires("borealis", {repo = "switch-repo"}, "deko3d", "libcurl", "libarchive", "bzip2", "zlib", "liblzma", "lz4", "libexpat", "libzstd")
+      - name: Configure xmake and install dependencies
+        run: xmake f --yes -p cross -m ${{ matrix.mode }} -a aarch64 --toolchain=devkita64 -vD --root
 
-          target("SimpleModDownloader")
-              set_kind("binary")
-              if not is_plat("cross") then 
-                  return
-              end
+      - name: Build SimpleModDownloader
+        run: xmake -vD --root
 
-              set_arch("aarch64")
-              add_rules("switch")
-              set_toolchains("devkita64")
-              set_languages("c++17")
-              
-              set_values("switch.name", "SimpleModDownloader")
-              set_values("switch.author", "PoloNX")
-              set_values("switch.version", "2.1.0")
-              set_values("switch.romfs", "resources")
-              set_values("switch.icon", "resources/icon/icon-256.jpg")
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SimpleModDownloader-${{ matrix.mode }}
+          path: build/cross/aarch64/${{ matrix.mode }}/SimpleModDownloader.nro
 
-              -- SimpleIniParser
-              add_files("lib/ini/source/SimpleIniParser/*.cpp")
-              add_includedirs("lib/ini/include")
-              add_includedirs("lib/ini/include/SimpleIniParser")
+  release-nx:
+    needs: build-nx
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-              add_files("source/**.cpp")
-              add_includedirs("include")
-              add_packages("borealis", "deko3d", "libcurl", "libarchive", "bzip2", "zlib", "liblzma", "lz4", "libexpat", "libzstd")
-          EOF
-          
-          # Load xmake environment
-          source ~/.xmake/profile
-          
-          # Navigate to the project directory (where xmake.lua is located)
-          cd $GITHUB_WORKSPACE
-          
-          # Configure and build using xmake with root permissions and skip confirmation
-          xmake f -p cross --sdk=/opt/devkitpro/devkitA64 --root --confirm=y
-          xmake --root --confirm=y
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ github.run_number }}
+          release_name: Release v${{ github.run_number }}
+          body: >
+            This is an automated release of the **SimpleModDownloader**.
+            - Includes both debug and release builds.
+          draft: false
+          prerelease: false
 
-    # Step 3: Archive the output
-    - name: Archive output
-      run: |
-        mkdir -p output
-        mv ./build/cross/aarch64/release/SimpleModDownloader.nro output/
-      # Replace the path above with the actual output path for your .nro file
-
-    # Step 4: Create a GitHub Release
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: v${{ github.run_number }} # Automatically generate version numbers based on workflow run
-        release_name: Release v${{ github.run_number }}
-        body: |
-          This is an automated release generated by the Build and Release workflow.
-        draft: false # Set to true if you want the release to be a draft
-        prerelease: false # Set to true for pre-releases
-
-    # Step 5: Upload Release Asset
-    - name: Upload Release Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: output/SimpleModDownloader.nro
-        asset_name: SimpleModDownloader.nro
-        asset_content_type: application/octet-stream
+      - name: Upload Release Asset (Release Mode)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: build/cross/aarch64/release/SimpleModDownloader.nro
+          asset_name: SimpleModDownloader.nro
+          asset_content_type: application/octet-stream
