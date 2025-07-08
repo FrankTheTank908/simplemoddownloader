@@ -29,12 +29,15 @@ jobs:
           curl -fsSL https://xmake.io/shget.text | bash
           export PATH=$HOME/.local/bin:$PATH
           
+          # Load xmake environment
+          source ~/.xmake/profile
+          
           # Navigate to the project directory (where xmake.lua is located)
           cd $GITHUB_WORKSPACE
           
-          # Configure and build using xmake with root permissions
-          xmake f -p cross --sdk=/opt/devkitpro/devkitA64 --root
-          xmake --root
+          # Configure and build using xmake with root permissions and skip confirmation
+          xmake f -p cross --sdk=/opt/devkitpro/devkitA64 --root --confirm=y
+          xmake --root --confirm=y
 
     # Step 3: Archive the output
     - name: Archive output
