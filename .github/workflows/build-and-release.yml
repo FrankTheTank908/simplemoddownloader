@@ -29,7 +29,7 @@ jobs:
           curl -fsSL https://xmake.io/shget.text | bash
           export PATH=$HOME/.local/bin:$PATH
           
-          # Navigate to the project directory
+          # Navigate to the project directory (where xmake.lua is located)
           cd $GITHUB_WORKSPACE
           
           # Configure and build using xmake with root permissions
