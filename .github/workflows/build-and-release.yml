@@ -1,4 +1,4 @@
-name: Build and Release SimpleModDownloader
+name: Build and Release SimpleModDownloader with Docker
 
 on:
   push:
@@ -18,41 +18,32 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # Step 2: Install xmake and dependencies
-    - name: Install xmake and dependencies
-      run: |
-        # Install xmake
-        curl -fsSL https://xmake.io/shget.text | bash
-        # Add xmake to PATH using environment files
-        echo "$(xmake l --path)" >> $GITHUB_PATH
-        # Install devkita64 for Switch (required for the toolchain)
-        sudo apt update
-        sudo apt install -y build-essential wget
-        wget https://apt.devkitpro.org/install-devkitpro-pacman
-        chmod +x ./install-devkitpro-pacman
-        sudo ./install-devkitpro-pacman
-        echo "DEVKITPRO=/opt/devkitpro" >> $GITHUB_ENV
-        echo "DEVKITA64=/opt/devkitpro/devkitA64" >> $GITHUB_ENV
-        source $GITHUB_ENV
-        sudo dkp-pacman -Syu switch-dev devkitA64 --noconfirm
+    # Step 2: Use DevkitPro Docker image
+    - name: Build using DevkitPro Docker image
+      uses: addnab/docker-run-action@v3
+      with:
+        image: devkitpro/devkitpro:latest
+        options: --rm  # Clean up the container after the job
+        run: |
+          # Ensure xmake is installed
+          curl -fsSL https://xmake.io/shget.text | bash
+          export PATH=$HOME/.local/bin:$PATH
+          
+          # Navigate to the project directory
+          cd $GITHUB_WORKSPACE
+          
+          # Configure and build using xmake
+          xmake f -p cross --sdk=/opt/devkitpro/devkitA64
+          xmake
 
-    # Step 3: Build the project using xmake
-    - name: Build Project
-      env:
-        DEVKITPRO: /opt/devkitpro
-        DEVKITA64: /opt/devkitpro/devkitA64
-      run: |
-        xmake f -p cross --sdk=/opt/devkitpro/devkitA64
-        xmake
-
-    # Step 4: Archive the output
+    # Step 3: Archive the output
     - name: Archive output
       run: |
         mkdir -p output
         mv ./build/cross/aarch64/release/SimpleModDownloader.nro output/
       # Replace the path above with the actual output path for your .nro file
 
-    # Step 5: Create a GitHub Release
+    # Step 4: Create a GitHub Release
     - name: Create Release
       id: create_release
       uses: actions/create-release@v1
@@ -66,7 +57,7 @@ jobs:
         draft: false # Set to true if you want the release to be a draft
         prerelease: false # Set to true for pre-releases
 
-    # Step 6: Upload Release Asset
+    # Step 5: Upload Release Asset
     - name: Upload Release Asset
       uses: actions/upload-release-asset@v1
       env:
