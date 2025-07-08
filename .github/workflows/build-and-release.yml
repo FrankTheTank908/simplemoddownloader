@@ -18,11 +18,11 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    # Step 2: Use DevkitPro Docker image
-    - name: Build using DevkitPro Docker image
+    # Step 2: Use DevkitA64 Docker image
+    - name: Build using DevkitA64 Docker image
       uses: addnab/docker-run-action@v3
       with:
-        image: devkitpro/devkitpro:latest
+        image: devkitpro/devkita64:latest
         options: --rm  # Clean up the container after the job
         run: |
           # Ensure xmake is installed
